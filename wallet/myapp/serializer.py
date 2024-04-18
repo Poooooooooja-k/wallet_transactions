@@ -60,9 +60,11 @@ class AddMoneySerializer(serializers.Serializer):
         return value
     
 class TransactionSerializer(serializers.ModelSerializer):
+    sender_name=CustomUserSerializer(source='sender',read_only=True)
+    recipient_name=CustomUserSerializer(source='recipient',read_only=True)
     class Meta:
         model =Transaction
-        fields = ['id', 'sender', 'recipient', 'amount', 'timestamp']
+        fields = ['id', 'sender', 'recipient', 'amount', 'timestamp','sender_name','recipient_name']
 
 
 class MoneyTransactionSerializer(serializers.Serializer):
@@ -73,3 +75,12 @@ class MoneyTransactionSerializer(serializers.Serializer):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
         return value
+    
+class RetrieveContactSerializer(serializers.ModelSerializer):
+    class Meta:
+        model=CustomUser
+        fields=['id','name','phone_number']
+
+
+class WithdrawalSerializer(serializers.Serializer):
+    withdrawal_amount = serializers.DecimalField(max_digits=10, decimal_places=2)

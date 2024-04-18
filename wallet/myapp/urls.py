@@ -9,4 +9,6 @@ urlpatterns = [
     path('addmoney/',AddMoney.as_view()),
     path('moneytransaction/',MoneyTransaction.as_view()),
     path('transaction/history/', TransactionHistory.as_view()),
+    path('retrievebalance/',RetriveBalance.as_view()),
+    path('contacts/',RetrieveContacts.as_view()),
 ]

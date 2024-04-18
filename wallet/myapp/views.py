@@ -8,20 +8,23 @@ from .serializer import *
 from rest_framework import permissions,status
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import transaction
+from razorpay import Client as RazorpayClient
+from django.conf import settings
+
+
 
 class Signup(APIView):
     def post(self, request):
         data=request.data
         password = data.get('password')
         confirm_password = data.get('confirm_password')
-        print(confirm_password,"----------")
         if password != confirm_password:
             raise serializers.ValidationError({'confirm_password': ['Passwords do not match.']})
         serializer = CustomUserSerializer(data=data)
         if serializer.is_valid():
             user=serializer.save()
             Wallet.objects.create(user=user)
-            return Response({'message': 'Registration successful. Please check your email for OTP verification.', 'data': serializer.data}, status=status.HTTP_201_CREATED)
+            return Response({'message': 'Registration successfull', 'data': serializer.data}, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
@@ -99,3 +102,63 @@ class TransactionHistory(APIView):
             'sent_transactions': sent_transactions_data,
             'received_transactions': received_transactions_data
         }, status=status.HTTP_200_OK)
+
+class RetriveBalance(APIView):
+    def get(self,request):
+        user=request.user
+        try:
+            wallet = Wallet.objects.get(user=user)
+            balance = wallet.balance
+            return Response({'balance': balance}, status=status.HTTP_200_OK)
+        except Wallet.DoesNotExist:
+            return Response({'error': 'Wallet not found for the user'}, status=status.HTTP_400_BAD_REQUEST)
+
+class RetrieveContacts(APIView):
+  def get(self, request):
+    user = request.user
+    print(user, "--------user----------")
+    users = CustomUser.objects.exclude(id=user.id)
+    serializer = RetrieveContactSerializer(users, many=True)
+    return Response({'data': serializer.data, 'message': 'contacts retrieved successfully'}, status=status.HTTP_200_OK)
+  
+class WalletWithdrawal(APIView):
+    def post(self, request):
+        razorpay_key_id = settings.RAZORPAY_KEY_ID
+        razorpay_key_secret = settings.RAZORPAY_KEY_SECRET
+        razorpay_client = RazorpayClient(auth=(razorpay_key_id, razorpay_key_secret))
+        serializer = WithdrawalSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        withdrawal_amount = serializer.validated_data.get('withdrawal_amount')
+        user_id = request.user.id
+        try:
+            wallet = Wallet.objects.get(user_id=user_id)
+        except Wallet.DoesNotExist:
+            return Response({"error": "Wallet not found"}, status=status.HTTP_404_NOT_FOUND)
+        if withdrawal_amount > wallet.balance:
+            return Response({"error": "Insufficient balance"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            withdrawal_response = razorpay_client.payment.create(
+                {
+                    "amount": withdrawal_amount * 100, 
+                    "currency": "INR",  # Assuming currency is INR
+                    "mode": "NEFT",
+                    "purpose": "wallet withdrawal",
+                    "fund_account_id": "YOUR_FUND_ACCOUNT_ID",  # Fund account ID from RazorpayX
+                    "beneficiary_account": {
+                        "name": request.user.name, 
+                        "ifsc": "YOUR_IFSC_CODE",# bank IFSC code
+                        "account_number": "USER_ACCOUNT_NUMBER"  # bank account number
+                    }
+                }
+            )
+            wallet.balance -= withdrawal_amount
+            wallet.save()
+            Transaction.objects.create(
+                sender=request.user,
+                recipient=request.user,
+                amount=withdrawal_amount,
+            )
+            return Response({"message": "Withdrawal successful", "data": withdrawal_response}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
